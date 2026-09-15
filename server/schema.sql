@@ -11,12 +11,24 @@ CREATE TABLE IF NOT EXISTS rental_events (id UUID PRIMARY KEY DEFAULT gen_random
 CREATE SEQUENCE IF NOT EXISTS os_number_seq START 1;
 CREATE TABLE IF NOT EXISTS service_orders (id UUID PRIMARY KEY DEFAULT gen_random_uuid(),number TEXT UNIQUE NOT NULL,rental_id UUID NOT NULL REFERENCES rentals(id) ON DELETE CASCADE,driver_id UUID REFERENCES users(id),order_type TEXT NOT NULL DEFAULT 'ENTREGA' CHECK (order_type IN ('ENTREGA','RETIRADA')),status TEXT NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE','ATRIBUIDA','A_CAMINHO','NO_LOCAL','CONCLUIDA','CANCELADA')),scheduled_date DATE NOT NULL,started_at TIMESTAMPTZ,completed_at TIMESTAMPTZ,driver_notes TEXT,route_url TEXT,photo_data TEXT,customer_confirmation TEXT,confirmed_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS financial_entries (id UUID PRIMARY KEY DEFAULT gen_random_uuid(),rental_id UUID REFERENCES rentals(id) ON DELETE SET NULL,customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,type TEXT NOT NULL CHECK (type IN ('RECEITA','DESPESA')),description TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),due_date DATE,paid_at TIMESTAMPTZ,status TEXT NOT NULL DEFAULT 'ABERTO' CHECK (status IN ('ABERTO','PAGO','CANCELADO')),created_by UUID REFERENCES users(id),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+
+-- Compatibilidade com o banco de produção existente: adiciona primeiro as colunas novas.
+ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES container_assets(id);
+ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS days INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS daily_rate NUMERIC(12,2) NOT NULL DEFAULT 0;
+ALTER TABLE rentals ADD COLUMN IF NOT EXISTS pickup_date DATE;
+ALTER TABLE rentals ADD COLUMN IF NOT EXISTS due_date DATE;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS order_type TEXT NOT NULL DEFAULT 'ENTREGA';
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS route_url TEXT;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS photo_data TEXT;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS customer_confirmation TEXT;
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name); CREATE INDEX IF NOT EXISTS idx_rentals_scheduled_date ON rentals(scheduled_date); CREATE INDEX IF NOT EXISTS idx_rentals_due_date ON rentals(due_date); CREATE INDEX IF NOT EXISTS idx_orders_scheduled_date ON service_orders(scheduled_date); CREATE INDEX IF NOT EXISTS idx_orders_driver ON service_orders(driver_id); CREATE INDEX IF NOT EXISTS idx_assets_status ON container_assets(status); CREATE INDEX IF NOT EXISTS idx_events_rental ON rental_events(rental_id,created_at DESC); CREATE INDEX IF NOT EXISTS idx_financial_status ON financial_entries(status,due_date);
 
 INSERT INTO containers(name,capacity_liters) SELECT 'Tambor 200 L',200 WHERE NOT EXISTS(SELECT 1 FROM containers WHERE capacity_liters=200);
 INSERT INTO containers(name,capacity_liters) SELECT 'Tambor 300 L',300 WHERE NOT EXISTS(SELECT 1 FROM containers WHERE capacity_liters=300);
 INSERT INTO containers(name,capacity_liters) SELECT 'Tambor 500 L',500 WHERE NOT EXISTS(SELECT 1 FROM containers WHERE capacity_liters=500);
-ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES container_assets(id); ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS days INTEGER NOT NULL DEFAULT 1; ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS daily_rate NUMERIC(12,2) NOT NULL DEFAULT 0; ALTER TABLE rentals ADD COLUMN IF NOT EXISTS pickup_date DATE; ALTER TABLE rentals ADD COLUMN IF NOT EXISTS due_date DATE; ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS order_type TEXT NOT NULL DEFAULT 'ENTREGA'; ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS route_url TEXT; ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS photo_data TEXT; ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS customer_confirmation TEXT; ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
 
 DO $$ DECLARE c RECORD; i INTEGER; code TEXT; BEGIN FOR c IN SELECT id,capacity_liters FROM containers WHERE active=true LOOP FOR i IN 1..3 LOOP code:='ML-'||c.capacity_liters||'-'||LPAD(i::text,3,'0'); INSERT INTO container_assets(container_id,patrimony_code) VALUES(c.id,code) ON CONFLICT(patrimony_code) DO NOTHING; END LOOP; END LOOP; END $$;
 
