@@ -9,5 +9,35 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      (() => {
+        const PRICE = 100;
+        const money = value => Number(value || 0).toFixed(2);
+        const wire = () => {
+          const labels = [...document.querySelectorAll('label')];
+          const quantityLabel = labels.find(l => l.textContent.trim().startsWith('Quantidade'));
+          const totalLabel = labels.find(l => l.textContent.trim().startsWith('Valor total'));
+          if (!quantityLabel || !totalLabel || quantityLabel.dataset.pricingWired) return;
+          const quantity = quantityLabel.querySelector('input');
+          const total = totalLabel.querySelector('input');
+          if (!quantity || !total) return;
+          quantityLabel.dataset.pricingWired = '1';
+          total.readOnly = true;
+          total.title = 'Calculado automaticamente: R$ 100,00 por tambor na contratação inicial.';
+          const update = () => {
+            const value = Math.max(1, Number(quantity.value) || 1) * PRICE;
+            total.value = money(value);
+            total.dispatchEvent(new Event('input', { bubbles: true }));
+            total.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          quantity.addEventListener('input', update);
+          quantity.addEventListener('change', update);
+          update();
+        };
+        const observer = new MutationObserver(wire);
+        observer.observe(document.getElementById('root'), { childList: true, subtree: true });
+        wire();
+      })();
+    </script>
   </body>
 </html>
