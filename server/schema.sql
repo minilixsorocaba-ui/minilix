@@ -57,3 +57,40 @@ CREATE TRIGGER trg_minilix_additional_container_finance AFTER INSERT ON rental_i
 
 CREATE OR REPLACE FUNCTION enforce_service_order_status_transition() RETURNS trigger AS $$ BEGIN IF NEW.status=OLD.status THEN RETURN NEW; END IF; IF OLD.status='PENDENTE' AND NEW.status NOT IN('ATRIBUIDA','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: PENDENTE -> %',NEW.status; ELSIF OLD.status='ATRIBUIDA' AND NEW.status NOT IN('PENDENTE','A_CAMINHO','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: ATRIBUIDA -> %',NEW.status; ELSIF OLD.status='A_CAMINHO' AND NEW.status NOT IN('NO_LOCAL','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: A_CAMINHO -> %',OLD.status; ELSIF OLD.status='NO_LOCAL' AND NEW.status NOT IN('CONCLUIDA','CANCELADA') THEN RAISE EXCEPTION 'OS finalizada não pode voltar de status: %',OLD.status; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_service_order_status_transition ON service_orders; CREATE TRIGGER trg_service_order_status_transition BEFORE UPDATE OF status ON service_orders FOR EACH ROW EXECUTE FUNCTION enforce_service_order_status_transition();
+
+-- Ao concluir uma OS de retirada, libera todos os patrimônios da locação,
+-- registra a data de retirada e fecha a locação. Isso fecha o ciclo operacional.
+CREATE OR REPLACE FUNCTION minilix_close_rental_on_pickup() RETURNS trigger AS $$
+BEGIN
+  IF NEW.status='CONCLUIDA' AND OLD.status<>'CONCLUIDA' AND NEW.order_type='RETIRADA' THEN
+    UPDATE container_assets
+       SET status='DISPONIVEL'
+     WHERE id IN (SELECT asset_id FROM rental_items WHERE rental_id=NEW.rental_id AND asset_id IS NOT NULL)
+       AND status='ALUGADO';
+    UPDATE rentals SET pickup_date=CURRENT_DATE,status='CONCLUIDA' WHERE id=NEW.rental_id;
+    INSERT INTO rental_events(rental_id,event_type,description)
+      VALUES(NEW.rental_id,'RETIRADA_FINALIZADA','Tambores devolvidos ao estoque e locação encerrada.');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_minilix_close_rental_on_pickup ON service_orders;
+CREATE TRIGGER trg_minilix_close_rental_on_pickup AFTER UPDATE OF status ON service_orders FOR EACH ROW EXECUTE FUNCTION minilix_close_rental_on_pickup();
+
+-- Garante que novas OS de retirada usem o endereço real da locação na rota.
+CREATE OR REPLACE FUNCTION minilix_retirement_route() RETURNS trigger AS $$
+DECLARE s TEXT; n TEXT; c TEXT; st TEXT;
+BEGIN
+  IF NEW.order_type='RETIRADA' THEN
+    SELECT a.street,a.number,a.city,a.state INTO s,n,c,st
+      FROM rentals r JOIN addresses a ON a.id=r.address_id WHERE r.id=NEW.rental_id;
+    IF s IS NOT NULL THEN
+      NEW.route_url := 'https://www.google.com/maps/search/?api=1&query=' || encode(convert_to(s || ', ' || n || ', ' || c || ', ' || st,'UTF8'),'escape');
+      NEW.route_url := replace(NEW.route_url,'%','%25');
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_minilix_retirement_route ON service_orders;
+CREATE TRIGGER trg_minilix_retirement_route BEFORE INSERT ON service_orders FOR EACH ROW EXECUTE FUNCTION minilix_retirement_route();
