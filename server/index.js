@@ -128,11 +128,19 @@ app.get('/api/drivers', auth, role('ADMIN','ATENDIMENTO'), async (_req, res) => 
 app.patch('/api/orders/:id/driver', auth, role('ADMIN','ATENDIMENTO'), async (req, res) => { const { rows } = await pool.query("UPDATE service_orders SET driver_id=$1,status='ATRIBUIDA' WHERE id=$2 RETURNING *", [req.body?.driverId || null, req.params.id]); if (!rows[0]) return res.status(404).json({ error: 'OS não encontrada.' }); res.json(rows[0]); });
 
 async function seedAdmin() {
-  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) return;
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM users');
-  if (rows[0].n > 0) return;
-  const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD, 12);
-  await pool.query('INSERT INTO users(name,email,password_hash,role) VALUES($1,$2,$3,\'ADMIN\')', ['Administrador', process.env.ADMIN_EMAIL.toLowerCase(), hash]);
+  const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const password = String(process.env.ADMIN_PASSWORD || '');
+  if (!email || !password) return;
+
+  const hash = await bcrypt.hash(password, 12);
+  const existing = await pool.query('SELECT id FROM users WHERE email=$1 LIMIT 1', [email]);
+  if (existing.rows[0]) {
+    await pool.query('UPDATE users SET password_hash=$1, role=\'ADMIN\', active=true WHERE id=$2', [hash, existing.rows[0].id]);
+    console.log('Administrador configurado/atualizado.');
+    return;
+  }
+
+  await pool.query('INSERT INTO users(name,email,password_hash,role) VALUES($1,$2,$3,\'ADMIN\')', ['Administrador', email, hash]);
   console.log('Administrador inicial criado.');
 }
 await seedAdmin();
