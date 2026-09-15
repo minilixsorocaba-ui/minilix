@@ -1,2 +1,2 @@
-import App from './AppV3.jsx';
+import App from './AppPricingRules.jsx';
 export default App;
