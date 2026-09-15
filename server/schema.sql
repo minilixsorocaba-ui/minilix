@@ -12,7 +12,6 @@ CREATE SEQUENCE IF NOT EXISTS os_number_seq START 1;
 CREATE TABLE IF NOT EXISTS service_orders (id UUID PRIMARY KEY DEFAULT gen_random_uuid(),number TEXT UNIQUE NOT NULL,rental_id UUID NOT NULL REFERENCES rentals(id) ON DELETE CASCADE,driver_id UUID REFERENCES users(id),order_type TEXT NOT NULL DEFAULT 'ENTREGA' CHECK (order_type IN ('ENTREGA','RETIRADA')),status TEXT NOT NULL DEFAULT 'PENDENTE' CHECK (status IN ('PENDENTE','ATRIBUIDA','A_CAMINHO','NO_LOCAL','CONCLUIDA','CANCELADA')),scheduled_date DATE NOT NULL,started_at TIMESTAMPTZ,completed_at TIMESTAMPTZ,driver_notes TEXT,route_url TEXT,photo_data TEXT,customer_confirmation TEXT,confirmed_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS financial_entries (id UUID PRIMARY KEY DEFAULT gen_random_uuid(),rental_id UUID REFERENCES rentals(id) ON DELETE SET NULL,customer_id UUID REFERENCES customers(id) ON DELETE SET NULL,type TEXT NOT NULL CHECK (type IN ('RECEITA','DESPESA')),description TEXT NOT NULL,amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),due_date DATE,paid_at TIMESTAMPTZ,status TEXT NOT NULL DEFAULT 'ABERTO' CHECK (status IN ('ABERTO','PAGO','CANCELADO')),created_by UUID REFERENCES users(id),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 
--- Compatibilidade com o banco de produção existente: adiciona primeiro as colunas novas.
 ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS asset_id UUID REFERENCES container_assets(id);
 ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS days INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE rental_items ADD COLUMN IF NOT EXISTS daily_rate NUMERIC(12,2) NOT NULL DEFAULT 0;
@@ -26,20 +25,19 @@ ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name); CREATE INDEX IF NOT EXISTS idx_rentals_scheduled_date ON rentals(scheduled_date); CREATE INDEX IF NOT EXISTS idx_rentals_due_date ON rentals(due_date); CREATE INDEX IF NOT EXISTS idx_orders_scheduled_date ON service_orders(scheduled_date); CREATE INDEX IF NOT EXISTS idx_orders_driver ON service_orders(driver_id); CREATE INDEX IF NOT EXISTS idx_assets_status ON container_assets(status); CREATE INDEX IF NOT EXISTS idx_events_rental ON rental_events(rental_id,created_at DESC); CREATE INDEX IF NOT EXISTS idx_financial_status ON financial_entries(status,due_date);
 
--- Estoque inicial operacional da MiniLix: somente tambores de 200 L.
 INSERT INTO containers(name,capacity_liters) SELECT 'Tambor 200 L',200 WHERE NOT EXISTS(SELECT 1 FROM containers WHERE capacity_liters=200);
 UPDATE containers SET active=false WHERE capacity_liters<>200;
 UPDATE container_assets SET status='INATIVO' WHERE container_id IN (SELECT id FROM containers WHERE capacity_liters<>200) AND status<>'ALUGADO';
 
 DO $$ DECLARE c UUID; i INTEGER; code TEXT; BEGIN SELECT id INTO c FROM containers WHERE capacity_liters=200 ORDER BY created_at LIMIT 1; IF c IS NOT NULL THEN FOR i IN 1..20 LOOP code:='ML-200-'||LPAD(i::text,3,'0'); INSERT INTO container_assets(container_id,patrimony_code) VALUES(c,code) ON CONFLICT(patrimony_code) DO NOTHING; END LOOP; END IF; END $$;
 
--- Regra comercial: contratação inicial = R$ 100,00 por tambor por dia.
+-- Regra comercial: R$ 100,00 por tambor, com 5 dias incluídos; cada dia adicional custa R$ 20,00 uma única vez.
 CREATE OR REPLACE FUNCTION minilix_initial_rental_price() RETURNS trigger AS $$
-DECLARE total_days INTEGER;
+DECLARE qty INTEGER; max_days INTEGER;
 BEGIN
   IF NEW.type='RECEITA' AND NEW.rental_id IS NOT NULL THEN
-    SELECT COALESCE(SUM(quantity * GREATEST(days,1)),0)::int INTO total_days FROM rental_items WHERE rental_id=NEW.rental_id;
-    IF total_days > 0 THEN NEW.amount := total_days * 100.00; END IF;
+    SELECT COALESCE(SUM(quantity),0)::int, COALESCE(MAX(days),5)::int INTO qty,max_days FROM rental_items WHERE rental_id=NEW.rental_id;
+    IF qty > 0 THEN NEW.amount := qty * 100.00 + GREATEST(max_days - 5,0) * 20.00; END IF;
   END IF;
   RETURN NEW;
 END;
@@ -47,5 +45,17 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_minilix_initial_rental_price ON financial_entries;
 CREATE TRIGGER trg_minilix_initial_rental_price BEFORE INSERT ON financial_entries FOR EACH ROW EXECUTE FUNCTION minilix_initial_rental_price();
 
-CREATE OR REPLACE FUNCTION enforce_service_order_status_transition() RETURNS trigger AS $$ BEGIN IF NEW.status=OLD.status THEN RETURN NEW; END IF; IF OLD.status='PENDENTE' AND NEW.status NOT IN('ATRIBUIDA','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: PENDENTE -> %',NEW.status; ELSIF OLD.status='ATRIBUIDA' AND NEW.status NOT IN('PENDENTE','A_CAMINHO','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: ATRIBUIDA -> %',NEW.status; ELSIF OLD.status='A_CAMINHO' AND NEW.status NOT IN('NO_LOCAL','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: A_CAMINHO -> %',NEW.status; ELSIF OLD.status='NO_LOCAL' AND NEW.status NOT IN('CONCLUIDA','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: NO_LOCAL -> %',OLD.status; ELSIF OLD.status IN('CONCLUIDA','CANCELADA') THEN RAISE EXCEPTION 'OS finalizada não pode voltar de status: %',OLD.status; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
+-- Tambor solicitado posteriormente: R$ 70,00 e atualização imediata da receita da locação.
+CREATE OR REPLACE FUNCTION minilix_additional_container_finance() RETURNS trigger AS $$
+BEGIN
+  IF NEW.daily_rate = 70.00 THEN
+    UPDATE financial_entries SET amount = amount + 70.00 WHERE rental_id=NEW.rental_id AND type='RECEITA' AND status<>'CANCELADO';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_minilix_additional_container_finance ON rental_items;
+CREATE TRIGGER trg_minilix_additional_container_finance AFTER INSERT ON rental_items FOR EACH ROW EXECUTE FUNCTION minilix_additional_container_finance();
+
+CREATE OR REPLACE FUNCTION enforce_service_order_status_transition() RETURNS trigger AS $$ BEGIN IF NEW.status=OLD.status THEN RETURN NEW; END IF; IF OLD.status='PENDENTE' AND NEW.status NOT IN('ATRIBUIDA','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: PENDENTE -> %',NEW.status; ELSIF OLD.status='ATRIBUIDA' AND NEW.status NOT IN('PENDENTE','A_CAMINHO','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: ATRIBUIDA -> %',NEW.status; ELSIF OLD.status='A_CAMINHO' AND NEW.status NOT IN('NO_LOCAL','CANCELADA') THEN RAISE EXCEPTION 'Transição de OS inválida: A_CAMINHO -> %',OLD.status; ELSIF OLD.status='NO_LOCAL' AND NEW.status NOT IN('CONCLUIDA','CANCELADA') THEN RAISE EXCEPTION 'OS finalizada não pode voltar de status: %',OLD.status; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_service_order_status_transition ON service_orders; CREATE TRIGGER trg_service_order_status_transition BEFORE UPDATE OF status ON service_orders FOR EACH ROW EXECUTE FUNCTION enforce_service_order_status_transition();
