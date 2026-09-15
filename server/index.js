@@ -14,9 +14,21 @@ const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const production = process.env.NODE_ENV === 'production';
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL não configurada.');
 if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET não configurada.');
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: production ? { rejectUnauthorized: false } : undefined });
+
+const dbConfig = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL }
+  : {
+      host: process.env.PGHOST,
+      port: Number(process.env.PGPORT || 5432),
+      database: process.env.PGDATABASE,
+      user: process.env.PGUSER,
+      password: process.env.PGPASSWORD
+    };
+if (!dbConfig.connectionString && (!dbConfig.host || !dbConfig.database || !dbConfig.user || !dbConfig.password)) {
+  throw new Error('Configuração do PostgreSQL não encontrada.');
+}
+const pool = new Pool({ ...dbConfig, ssl: production ? { rejectUnauthorized: false } : undefined });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.set('trust proxy', 1);
