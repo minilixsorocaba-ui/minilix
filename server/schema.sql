@@ -31,25 +31,20 @@ UPDATE container_assets SET status='INATIVO' WHERE container_id IN (SELECT id FR
 
 DO $$ DECLARE c UUID; i INTEGER; code TEXT; BEGIN SELECT id INTO c FROM containers WHERE capacity_liters=200 ORDER BY created_at LIMIT 1; IF c IS NOT NULL THEN FOR i IN 1..20 LOOP code:='ML-200-'||LPAD(i::text,3,'0'); INSERT INTO container_assets(container_id,patrimony_code) VALUES(c,code) ON CONFLICT(patrimony_code) DO NOTHING; END LOOP; END IF; END $$;
 
--- Regra comercial: R$ 100,00 por tambor, com 5 dias incluídos; cada dia adicional custa R$ 20,00 uma única vez.
-CREATE OR REPLACE FUNCTION minilix_initial_rental_price() RETURNS trigger AS $$
-DECLARE qty INTEGER; max_days INTEGER;
-BEGIN
-  IF NEW.type='RECEITA' AND NEW.rental_id IS NOT NULL THEN
-    SELECT COALESCE(SUM(quantity),0)::int, COALESCE(MAX(days),5)::int INTO qty,max_days FROM rental_items WHERE rental_id=NEW.rental_id;
-    IF qty > 0 THEN NEW.amount := qty * 100.00 + GREATEST(max_days - 5,0) * 20.00; END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- A receita inicial é gravada pelo backend com a regra comercial vigente: R$ 100,00 por tambor + R$ 20,00 por dia adicional, uma única vez.
 DROP TRIGGER IF EXISTS trg_minilix_initial_rental_price ON financial_entries;
-CREATE TRIGGER trg_minilix_initial_rental_price BEFORE INSERT ON financial_entries FOR EACH ROW EXECUTE FUNCTION minilix_initial_rental_price();
+DROP FUNCTION IF EXISTS minilix_initial_rental_price();
 
--- Tambor solicitado posteriormente: R$ 70,00 e atualização imediata da receita da locação.
+-- Tambor solicitado posteriormente: gera uma receita independente de R$ 70,00.
 CREATE OR REPLACE FUNCTION minilix_additional_container_finance() RETURNS trigger AS $$
+DECLARE customer UUID; due DATE;
 BEGIN
-  IF NEW.daily_rate = 70.00 THEN
-    UPDATE financial_entries SET amount = amount + 70.00 WHERE rental_id=NEW.rental_id AND type='RECEITA' AND status<>'CANCELADO';
+  IF NEW.daily_rate = 70.00 AND NEW.quantity = 1 THEN
+    SELECT r.customer_id, r.due_date INTO customer, due FROM rentals r WHERE r.id=NEW.rental_id;
+    IF customer IS NOT NULL THEN
+      INSERT INTO financial_entries(rental_id,customer_id,type,description,amount,due_date,status)
+      VALUES(NEW.rental_id,customer,'RECEITA','Tambor adicional',70.00,due,'ABERTO');
+    END IF;
   END IF;
   RETURN NEW;
 END;
