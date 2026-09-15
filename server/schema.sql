@@ -22,28 +22,31 @@ ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS route_url TEXT;
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS photo_data TEXT;
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS customer_confirmation TEXT;
 ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ;
+ALTER TABLE financial_entries ADD COLUMN IF NOT EXISTS source_rental_item_id UUID REFERENCES rental_items(id) ON DELETE SET NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_finance_source_rental_item ON financial_entries(source_rental_item_id) WHERE source_rental_item_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name); CREATE INDEX IF NOT EXISTS idx_rentals_scheduled_date ON rentals(scheduled_date); CREATE INDEX IF NOT EXISTS idx_rentals_due_date ON rentals(due_date); CREATE INDEX IF NOT EXISTS idx_orders_scheduled_date ON service_orders(scheduled_date); CREATE INDEX IF NOT EXISTS idx_orders_driver ON service_orders(driver_id); CREATE INDEX IF NOT EXISTS idx_assets_status ON container_assets(status); CREATE INDEX IF NOT EXISTS idx_events_rental ON rental_events(rental_id,created_at DESC); CREATE INDEX IF NOT EXISTS idx_financial_status ON financial_entries(status,due_date);
 
 INSERT INTO containers(name,capacity_liters) SELECT 'Tambor 200 L',200 WHERE NOT EXISTS(SELECT 1 FROM containers WHERE capacity_liters=200);
 UPDATE containers SET active=false WHERE capacity_liters<>200;
 UPDATE container_assets SET status='INATIVO' WHERE container_id IN (SELECT id FROM containers WHERE capacity_liters<>200) AND status<>'ALUGADO';
-
 DO $$ DECLARE c UUID; i INTEGER; code TEXT; BEGIN SELECT id INTO c FROM containers WHERE capacity_liters=200 ORDER BY created_at LIMIT 1; IF c IS NOT NULL THEN FOR i IN 1..20 LOOP code:='ML-200-'||LPAD(i::text,3,'0'); INSERT INTO container_assets(container_id,patrimony_code) VALUES(c,code) ON CONFLICT(patrimony_code) DO NOTHING; END LOOP; END IF; END $$;
 
--- A receita inicial é gravada pelo backend com a regra comercial vigente: R$ 100,00 por tambor + R$ 20,00 por dia adicional, uma única vez.
+-- A receita inicial é gravada pelo backend: R$ 100,00 por tambor + R$ 20,00 por dia adicional, uma única vez.
 DROP TRIGGER IF EXISTS trg_minilix_initial_rental_price ON financial_entries;
 DROP FUNCTION IF EXISTS minilix_initial_rental_price();
 
 -- Tambor solicitado posteriormente: gera uma receita independente de R$ 70,00.
+-- source_rental_item_id garante que uma repetição da mesma operação não duplique a cobrança.
 CREATE OR REPLACE FUNCTION minilix_additional_container_finance() RETURNS trigger AS $$
 DECLARE customer UUID; due DATE;
 BEGIN
   IF NEW.daily_rate = 70.00 AND NEW.quantity = 1 THEN
     SELECT r.customer_id, r.due_date INTO customer, due FROM rentals r WHERE r.id=NEW.rental_id;
     IF customer IS NOT NULL THEN
-      INSERT INTO financial_entries(rental_id,customer_id,type,description,amount,due_date,status)
-      VALUES(NEW.rental_id,customer,'RECEITA','Tambor adicional',70.00,due,'ABERTO');
+      INSERT INTO financial_entries(rental_id,customer_id,type,description,amount,due_date,status,source_rental_item_id)
+      VALUES(NEW.rental_id,customer,'RECEITA','Tambor adicional',70.00,due,'ABERTO',NEW.id)
+      ON CONFLICT (source_rental_item_id) DO NOTHING;
     END IF;
   END IF;
   RETURN NEW;
