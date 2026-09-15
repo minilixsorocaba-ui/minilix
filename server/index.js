@@ -28,7 +28,8 @@ const dbConfig = process.env.DATABASE_URL
 if (!dbConfig.connectionString && (!dbConfig.host || !dbConfig.database || !dbConfig.user || !dbConfig.password)) {
   throw new Error('Configuração do PostgreSQL não encontrada.');
 }
-const pool = new Pool({ ...dbConfig, ssl: production ? { rejectUnauthorized: false } : undefined });
+const sslSetting = process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined;
+const pool = new Pool({ ...dbConfig, ssl: sslSetting });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.set('trust proxy', 1);
