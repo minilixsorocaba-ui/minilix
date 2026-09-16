@@ -1,0 +1,13 @@
+/* MiniLix visual identity layer — safe additive theme */
+:root{--ml-green:#1f7a4d;--ml-green-dark:#145c38;--ml-green-soft:#eaf6ef;--ml-ink:#1f2937;--ml-bg:#f4f7f5;--ml-border:#dbe7df;}
+body{background:var(--ml-bg);color:var(--ml-ink);}
+header,.header,.topbar{border-bottom:2px solid var(--ml-green);}
+button,.btn{border-radius:10px;transition:transform .12s ease,box-shadow .12s ease,background .12s ease;}
+button:hover,.btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(31,122,77,.16);}
+.panel,.card,.modal,.sidebar,.table-wrap{border-color:var(--ml-border);}
+.badge{border-radius:999px;}
+.driver-card{border-left:4px solid var(--ml-green);}
+.v5-dashboard,.v5-reports,.v5-clients,.v5-assets{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+/* Branded floating controls used by V5 modules */
+button[title*="Central"],button[title*="Relat"]{background:var(--ml-green)!important;color:#fff!important;border-color:var(--ml-green-dark)!important;}
+"
