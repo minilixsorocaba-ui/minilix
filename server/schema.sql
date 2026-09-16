@@ -94,3 +94,42 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_minilix_retirement_route ON service_orders;
 CREATE TRIGGER trg_minilix_retirement_route BEFORE INSERT ON service_orders FOR EACH ROW EXECUTE FUNCTION minilix_retirement_route();
+
+-- A entrega concluída sempre cria uma única OS de retirada automaticamente.
+-- Isso elimina dependência de um botão manual e torna a operação idempotente.
+CREATE OR REPLACE FUNCTION minilix_auto_pickup_on_delivery() RETURNS trigger AS $$
+DECLARE existing_id UUID; n TEXT; due DATE;
+BEGIN
+  IF NEW.status='CONCLUIDA' AND OLD.status<>'CONCLUIDA' AND NEW.order_type='ENTREGA' THEN
+    SELECT id INTO existing_id
+      FROM service_orders
+      WHERE rental_id=NEW.rental_id AND order_type='RETIRADA' AND status<>'CANCELADA'
+      ORDER BY created_at DESC LIMIT 1;
+    IF existing_id IS NULL THEN
+      SELECT 'OS-' || to_char(CURRENT_DATE,'YYYY') || '-' || LPAD(nextval('os_number_seq')::text,6,'0'), due_date
+        INTO n,due FROM rentals WHERE id=NEW.rental_id;
+      INSERT INTO service_orders(number,rental_id,scheduled_date,order_type,route_url)
+        VALUES(n,NEW.rental_id,COALESCE(due,CURRENT_DATE),'RETIRADA',NULL);
+      INSERT INTO rental_events(rental_id,event_type,description)
+        VALUES(NEW.rental_id,'OS_RETIRADA_CRIADA', 'OS ' || n || ' de retirada criada automaticamente após a conclusão da entrega.');
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS trg_minilix_auto_pickup_on_delivery ON service_orders;
+CREATE TRIGGER trg_minilix_auto_pickup_on_delivery AFTER UPDATE OF status ON service_orders FOR EACH ROW EXECUTE FUNCTION minilix_auto_pickup_on_delivery();
+
+-- Backfill seguro: corrige entregas já concluídas que ainda não possuem retirada.
+DO $$ DECLARE r RECORD; n TEXT; existing_id UUID; BEGIN
+  FOR r IN SELECT o.rental_id FROM service_orders o WHERE o.order_type='ENTREGA' AND o.status='CONCLUIDA' LOOP
+    SELECT id INTO existing_id FROM service_orders WHERE rental_id=r.rental_id AND order_type='RETIRADA' AND status<>'CANCELADA' LIMIT 1;
+    IF existing_id IS NULL THEN
+      n := 'OS-' || to_char(CURRENT_DATE,'YYYY') || '-' || LPAD(nextval('os_number_seq')::text,6,'0');
+      INSERT INTO service_orders(number,rental_id,scheduled_date,order_type,route_url)
+        SELECT n,rental_id,COALESCE(due_date,CURRENT_DATE),'RETIRADA',NULL FROM rentals WHERE id=r.rental_id;
+      INSERT INTO rental_events(rental_id,event_type,description)
+        VALUES(r.rental_id,'OS_RETIRADA_CRIADA','OS ' || n || ' de retirada criada automaticamente para entrega já concluída.');
+    END IF;
+  END LOOP;
+END $$;
