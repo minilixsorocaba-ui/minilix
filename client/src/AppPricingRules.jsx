@@ -46,6 +46,14 @@ export default function AppPricingRules(){
           if(s)s.textContent='R$ 100,00 por tambor, com 5 dias de permanência incluídos.';
         }
       });
+      [...document.querySelectorAll('button')].forEach(button=>{
+        if(button.textContent.trim()==='Gerar retirada'){
+          const note=document.createElement('span');
+          note.className='badge';
+          note.textContent='Retirada automática';
+          button.replaceWith(note);
+        }
+      });
     };
     const patchedFetch=async(input,init={})=>{
       const url=typeof input==='string'?input:(input?.url||'');
