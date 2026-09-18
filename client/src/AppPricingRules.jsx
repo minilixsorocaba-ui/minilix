@@ -63,7 +63,7 @@ export default function AppPricingRules(){
           const data=JSON.parse(init.body);
           if(url.endsWith('/api/rentals')){
             const q=Math.max(1,Number(data.quantity)||1);
-            const extra=Math.max(0,Number(data.days||0));
+            const extra=Math.max(0,Number(data.days||5)-5);
             data.dailyRate=110;
             data.totalAmount=q*110+extra*10;
             data.dueDate=due(data.scheduledDate,extra);
