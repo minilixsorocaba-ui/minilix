@@ -78,7 +78,7 @@ app.get('/api/alerts/overdue',auth,async(_req,res)=>{const r=await pool.query(`S
 
 // ==================== APP DO CLIENTE ====================
 const clientCookieOptions={httpOnly:true,secure:production,sameSite:'lax',maxAge:30*24*60*60*1000,path:'/'};
-const clientTokenFor=c=>jwt.sign({sub:c.id,kind:'CLIENTE',name:c.name,email:c.email},{process.env.JWT_SECRET},{expiresIn:'30d'});
+const clientTokenFor=c=>jwt.sign({sub:c.id,kind:'CLIENTE',name:c.name,email:c.email},process.env.JWT_SECRET,{expiresIn:'30d'});
 function clientAuth(req,res,next){try{const t=jwt.verify(req.cookies.ml_client_session||'',process.env.JWT_SECRET);if(t.kind!=='CLIENTE')throw new Error();req.client=t;next()}catch{res.status(401).json({error:'Acesso do cliente inválido ou expirado.'})}}
 app.post('/api/client/register',async(req,res)=>{
  const name=String(req.body?.name||'').trim(),email=String(req.body?.email||'').trim().toLowerCase(),phone=String(req.body?.phone||'').trim(),password=String(req.body?.password||'');
