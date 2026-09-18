@@ -75,6 +75,62 @@ app.post('/api/finance',auth,role('ADMIN','ATENDIMENTO'),async(req,res)=>{const{
 app.patch('/api/finance/:id/status',auth,role('ADMIN','ATENDIMENTO'),async(req,res)=>{const status=String(req.body?.status||'');if(!['ABERTO','PAGO','CANCELADO'].includes(status))return res.status(400).json({error:'Status financeiro inválido.'});const r=await pool.query('UPDATE financial_entries SET status=$1,paid_at=CASE WHEN $1=\'PAGO\' THEN NOW() ELSE paid_at END WHERE id=$2 RETURNING *',[status,req.params.id]);if(!r.rows[0])return res.status(404).json({error:'Lançamento não encontrado.'});res.json(r.rows[0])});
 app.get('/api/alerts/overdue',auth,async(_req,res)=>{const r=await pool.query(`SELECT r.id,r.due_date,c.name customer_name,a.street,a.number FROM rentals r JOIN customers c ON c.id=r.customer_id JOIN addresses a ON a.id=r.address_id WHERE r.due_date<CURRENT_DATE AND r.status NOT IN ('CONCLUIDA','CANCELADA') ORDER BY r.due_date`);res.json(r.rows)});
 
+
+// ==================== APP DO CLIENTE ====================
+const clientCookieOptions={httpOnly:true,secure:production,sameSite:'lax',maxAge:30*24*60*60*1000,path:'/'};
+const clientTokenFor=c=>jwt.sign({sub:c.id,kind:'CLIENTE',name:c.name,email:c.email},{process.env.JWT_SECRET},{expiresIn:'30d'});
+function clientAuth(req,res,next){try{const t=jwt.verify(req.cookies.ml_client_session||'',process.env.JWT_SECRET);if(t.kind!=='CLIENTE')throw new Error();req.client=t;next()}catch{res.status(401).json({error:'Acesso do cliente inválido ou expirado.'})}}
+app.post('/api/client/register',async(req,res)=>{
+ const name=String(req.body?.name||'').trim(),email=String(req.body?.email||'').trim().toLowerCase(),phone=String(req.body?.phone||'').trim(),password=String(req.body?.password||'');
+ if(!name||!email||password.length<6)return res.status(400).json({error:'Informe nome, e-mail e senha com pelo menos 6 caracteres.'});
+ try{
+  const exists=await pool.query('SELECT id FROM customers WHERE LOWER(email)=LOWER($1) LIMIT 1',[email]);
+  if(exists.rows[0])return res.status(409).json({error:'Este e-mail já possui cadastro. Use Entrar.'});
+  const r=await pool.query('INSERT INTO customers(name,email,phone,password_hash,active) VALUES($1,$2,$3,$4,true) RETURNING id,name,email,phone',[name,email,phone,await bcrypt.hash(password,12)]);
+  const c=r.rows[0];res.cookie('ml_client_session',clientTokenFor(c),clientCookieOptions).status(201).json({customer:c});
+ }catch(e){console.error(e);res.status(400).json({error:'Não foi possível criar o cadastro.'})}
+});
+app.post('/api/client/login',async(req,res)=>{
+ const email=String(req.body?.email||'').trim().toLowerCase(),password=String(req.body?.password||'');
+ const r=await pool.query('SELECT id,name,email,phone,password_hash,active FROM customers WHERE LOWER(email)=LOWER($1) LIMIT 1',[email]);
+ const c=r.rows[0];if(!c||!c.active||!c.password_hash||!(await bcrypt.compare(password,c.password_hash)))return res.status(401).json({error:'E-mail ou senha inválidos.'});
+ const {password_hash,...customer}=c;res.cookie('ml_client_session',clientTokenFor(customer),clientCookieOptions).json({customer});
+});
+app.post('/api/client/logout',(_req,res)=>res.clearCookie('ml_client_session',clientCookieOptions).json({ok:true}));
+app.get('/api/client/me',clientAuth,async(req,res)=>{const r=await pool.query('SELECT id,name,email,phone FROM customers WHERE id=$1 AND active=true',[req.client.sub]);if(!r.rows[0])return res.status(401).json({error:'Cliente não encontrado.'});res.json({customer:r.rows[0]})});
+app.get('/api/client/rentals',clientAuth,async(req,res)=>{
+ const r=await pool.query(`SELECT r.id,r.scheduled_date,r.due_date,r.pickup_date,r.status,a.street,a.number,a.neighborhood,a.city,a.state,COALESCE(SUM(ri.quantity),0)::int container_quantity
+ FROM rentals r JOIN addresses a ON a.id=r.address_id LEFT JOIN rental_items ri ON ri.rental_id=r.id
+ WHERE r.customer_id=$1 GROUP BY r.id,a.street,a.number,a.neighborhood,a.city,a.state ORDER BY r.scheduled_date DESC,r.created_at DESC`,[req.client.sub]);res.json(r.rows);
+});
+app.get('/api/client/finance',clientAuth,async(req,res)=>{const r=await pool.query("SELECT id,rental_id,type,description,amount,due_date,paid_at,status,created_at FROM financial_entries WHERE customer_id=$1 ORDER BY due_date NULLS LAST,created_at DESC",[req.client.sub]);res.json(r.rows)});
+app.get('/api/client/requests',clientAuth,async(req,res)=>{const r=await pool.query("SELECT id,rental_id,type,details,status,created_at FROM client_requests WHERE customer_id=$1 ORDER BY created_at DESC",[req.client.sub]);res.json(r.rows)});
+app.post('/api/client/requests',clientAuth,async(req,res)=>{
+ const type=String(req.body?.type||''),details=String(req.body?.details||'').trim(),rentalId=req.body?.rentalId||null;
+ if(!['RETIRADA','DIAS_ADICIONAIS','TAMBOR_ADICIONAL','TROCA_TAMBOR','SUPORTE'].includes(type))return res.status(400).json({error:'Tipo de solicitação inválido.'});
+ if(rentalId){const own=await pool.query('SELECT id FROM rentals WHERE id=$1 AND customer_id=$2',[rentalId,req.client.sub]);if(!own.rows[0])return res.status(403).json({error:'Locação não pertence ao cliente.'})}
+ const r=await pool.query('INSERT INTO client_requests(customer_id,rental_id,type,details) VALUES($1,$2,$3,$4) RETURNING *',[req.client.sub,rentalId,type,details||null]);res.status(201).json(r.rows[0]);
+});
+app.post('/api/client/rentals',clientAuth,async(req,res)=>{
+ const b=req.body||{},qty=Math.max(1,Math.min(20,Number(b.quantity)||1)),extra=Math.max(0,Number(b.extraDays)||0);
+ if(!b.scheduledDate||!b.street||!b.number||!b.city)return res.status(400).json({error:'Informe data de entrega e endereço completo.'});
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');
+  const a=await client.query('INSERT INTO addresses(customer_id,cep,street,number,neighborhood,city,state,reference) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',[req.client.sub,b.cep||null,b.street,b.number,b.neighborhood||null,b.city,b.state||'SP',b.reference||null]);
+  const due=new Date(`${b.scheduledDate}T00:00:00`);due.setDate(due.getDate()+4+extra);const dueDate=due.toISOString().slice(0,10);
+  const total=qty*110+extra*10;
+  const ct=await client.query("SELECT id FROM containers WHERE capacity_liters=200 AND active=true ORDER BY created_at LIMIT 1");if(!ct.rows[0])throw new Error('Tambor 200 L não configurado.');
+  const r=await client.query("INSERT INTO rentals(customer_id,address_id,scheduled_date,due_date,status,notes) VALUES($1,$2,$3,$4,'AGENDADA',$5) RETURNING id",[req.client.sub,a.rows[0].id,b.scheduledDate,dueDate,b.notes||null]);
+  await client.query('INSERT INTO rental_items(rental_id,container_id,quantity,days,daily_rate) VALUES($1,$2,$3,$4,$5)',[r.rows[0].id,ct.rows[0].id,qty,5+extra,110]);
+  const number=await osNumber(client);const route=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${b.street}, ${b.number}, ${b.city}, ${b.state||'SP'}`)}`;
+  const o=await client.query("INSERT INTO service_orders(number,rental_id,scheduled_date,order_type,route_url) VALUES($1,$2,$3,'ENTREGA',$4) RETURNING number,id",[number,r.rows[0].id,b.scheduledDate,route]);
+  await client.query("INSERT INTO rental_events(rental_id,event_type,description) VALUES($1,'LOCACAO_CRIADA',$2)",[r.rows[0].id,`Contratação pelo App do Cliente com OS ${number}.`]);
+  await client.query("INSERT INTO financial_entries(rental_id,customer_id,type,description,amount,due_date,status) VALUES($1,$2,'RECEITA',$3,$4,$5,'ABERTO')",[r.rows[0].id,req.client.sub,`Locação ${number}`,total,dueDate]);
+  await client.query('COMMIT');res.status(201).json({rentalId:r.rows[0].id,order:o.rows[0],total,dueDate});
+ }catch(e){await client.query('ROLLBACK');console.error(e);res.status(400).json({error:e.message||'Não foi possível criar a contratação.'})}finally{client.release()}
+});
+
 async function seedAdmin(){const email=String(process.env.ADMIN_EMAIL||'').trim().toLowerCase(),password=String(process.env.ADMIN_PASSWORD||'');if(!email||!password)return;const hash=await bcrypt.hash(password,12);const existing=await pool.query('SELECT id FROM users WHERE email=$1 LIMIT 1',[email]);if(existing.rows[0]){await pool.query("UPDATE users SET password_hash=$1,role='ADMIN',active=true WHERE id=$2",[hash,existing.rows[0].id]);console.log('Administrador configurado/atualizado.');return}await pool.query("INSERT INTO users(name,email,password_hash,role) VALUES($1,$2,$3,'ADMIN')",['Administrador',email,hash]);console.log('Administrador inicial criado.')}
 await seedAdmin();
 const clientDist=path.join(__dirname,'../client/dist');app.use(express.static(clientDist));app.use((req,res,next)=>{if(req.method==='GET'&&!req.path.startsWith('/api/'))return res.sendFile(path.join(clientDist,'index.html'));next()});app.use((err,_req,res,_next)=>{console.error(err);res.status(500).json({error:'Erro interno.'})});app.listen(port,'0.0.0.0',()=>console.log(`MiniLix API ouvindo na porta ${port}`));
