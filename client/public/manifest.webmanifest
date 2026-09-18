@@ -1,11 +1,18 @@
 {
+  "id":"/cliente",
   "name":"MiniLix - App do Cliente",
   "short_name":"MiniLix",
   "start_url":"/cliente",
+  "scope":"/cliente/",
   "display":"standalone",
+  "display_override":["standalone"],
   "background_color":"#f3f8f5",
   "theme_color":"#006b2d",
   "lang":"pt-BR",
   "description":"Contratações, acompanhamento, solicitações e pagamentos MiniLix.",
-  "icons":[{"src":"/minilix-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+  "icons":[
+    {"src":"/minilix-icon-192.svg","sizes":"192x192","type":"image/svg+xml","purpose":"any"},
+    {"src":"/minilix-icon-512.svg","sizes":"512x512","type":"image/svg+xml","purpose":"any"},
+    {"src":"/minilix-icon.svg","sizes":"512x512","type":"image/svg+xml","purpose":"any maskable"}
+  ]
 }
