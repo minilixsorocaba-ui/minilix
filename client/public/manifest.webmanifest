@@ -1,0 +1,11 @@
+{
+  "name":"MiniLix - App do Cliente",
+  "short_name":"MiniLix",
+  "start_url":"/cliente",
+  "display":"standalone",
+  "background_color":"#f3f8f5",
+  "theme_color":"#006b2d",
+  "lang":"pt-BR",
+  "description":"Contratações, acompanhamento, solicitações e pagamentos MiniLix.",
+  "icons":[{"src":"/minilix-icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
