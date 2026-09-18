@@ -25,10 +25,10 @@ export default function AppPricingRules(){
       const dueInput=getInput('Vencimento');
       if(extra){extra.min='0';if(extra.value===''||extra.value==='1'){extra.value='0';}}
       if(qty&&extra&&total){
-        const q=Math.max(1,Number(qty.value)||1),d=Math.max(0,Number(extra.value)||0),value=q*100+d*20;
+        const q=Math.max(1,Number(qty.value)||1),d=Math.max(0,Number(extra.value)||0),value=q*110+d*10;
         total.value=money(value);
         const small=total.parentElement?.querySelector('small');
-        if(small)small.textContent=d?`Cálculo: ${q} × R$ 100,00 + ${d} dia(s) adicional(is) × R$ 20,00`:`Cálculo: ${q} × R$ 100,00 (5 dias incluídos)`;
+        if(small)small.textContent=d?`Cálculo: ${q} × R$ 110,00 + ${d} dia(s) adicional(is) × R$ 10,00`:`Cálculo: ${q} × R$ 110,00 (5 dias incluídos)`;
       }
       if(delivery&&dueInput){
         const d=Math.max(0,Number(extra?.value)||0),v=due(delivery.value,d);
@@ -39,11 +39,11 @@ export default function AppPricingRules(){
         const t=(label.firstChild?.textContent||'').trim();
         if(t==='Dias adicionais solicitados'){
           const s=label.querySelector('small');
-          if(s)s.textContent='5 dias de permanência já incluídos no valor contratado. Cada dia adicional: R$ 20,00.';
+          if(s)s.textContent='5 dias de permanência já incluídos no valor contratado. Cada dia adicional: R$ 10,00.';
         }
         if(t==='Valor contratado por tambor'){
           const s=label.querySelector('small');
-          if(s)s.textContent='R$ 100,00 por tambor, com 5 dias de permanência incluídos.';
+          if(s)s.textContent='R$ 110,00 por tambor, com 5 dias de permanência incluídos.';
         }
       });
       [...document.querySelectorAll('button')].forEach(button=>{
@@ -64,8 +64,8 @@ export default function AppPricingRules(){
           if(url.endsWith('/api/rentals')){
             const q=Math.max(1,Number(data.quantity)||1);
             const extra=Math.max(0,Number(data.days||0));
-            data.dailyRate=100;
-            data.totalAmount=q*100+extra*20;
+            data.dailyRate=110;
+            data.totalAmount=q*110+extra*10;
             data.dueDate=due(data.scheduledDate,extra);
             initialRentalUntil=Date.now()+10000;
             init={...init,body:JSON.stringify(data)};
