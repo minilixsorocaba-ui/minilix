@@ -104,6 +104,9 @@ app.get('/api/client/rentals',clientAuth,async(req,res)=>{
  WHERE r.customer_id=$1 GROUP BY r.id,a.street,a.number,a.neighborhood,a.city,a.state ORDER BY r.scheduled_date DESC,r.created_at DESC`,[req.client.sub]);res.json(r.rows);
 });
 app.get('/api/client/finance',clientAuth,async(req,res)=>{const r=await pool.query("SELECT id,rental_id,type,description,amount,due_date,paid_at,status,created_at FROM financial_entries WHERE customer_id=$1 ORDER BY due_date NULLS LAST,created_at DESC",[req.client.sub]);res.json(r.rows)});
+app.get('/api/client-requests',auth,role('ADMIN','ATENDIMENTO'),async(_req,res)=>{const r=await pool.query(`SELECT cr.id,cr.rental_id,cr.type,cr.details,cr.status,cr.created_at,c.name customer_name,c.email customer_email FROM client_requests cr JOIN customers c ON c.id=cr.customer_id WHERE cr.status IN ('ABERTA','EM_ATENDIMENTO') ORDER BY cr.created_at ASC`);res.json(r.rows)});
+app.patch('/api/client-requests/:id/status',auth,role('ADMIN','ATENDIMENTO'),async(req,res)=>{const status=String(req.body?.status||'');if(!['ABERTA','EM_ATENDIMENTO','CONCLUIDA','CANCELADA'].includes(status))return res.status(400).json({error:'Status de solicitação inválido.'});const r=await pool.query('UPDATE client_requests SET status=$1 WHERE id=$2 RETURNING *',[status,req.params.id]);if(!r.rows[0])return res.status(404).json({error:'Solicitação não encontrada.'});res.json(r.rows[0])});
+
 app.get('/api/client/requests',clientAuth,async(req,res)=>{const r=await pool.query("SELECT id,rental_id,type,details,status,created_at FROM client_requests WHERE customer_id=$1 ORDER BY created_at DESC",[req.client.sub]);res.json(r.rows)});
 app.post('/api/client/requests',clientAuth,async(req,res)=>{
  const type=String(req.body?.type||''),details=String(req.body?.details||'').trim(),rentalId=req.body?.rentalId||null;
