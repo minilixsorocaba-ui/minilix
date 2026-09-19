@@ -140,6 +140,48 @@ DO $$ DECLARE r RECORD; n TEXT; existing_id UUID; BEGIN
 END $$;
 
 
+
+
+-- ==================== V6.3 PIX ====================
+-- Persistência do ciclo de cobrança Pix e proteção contra duplicidade.
+CREATE TABLE IF NOT EXISTS payment_transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  rental_id UUID REFERENCES rentals(id) ON DELETE SET NULL,
+  customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+  financial_entry_id UUID REFERENCES financial_entries(id) ON DELETE SET NULL,
+  provider TEXT NOT NULL DEFAULT 'MERCADO_PAGO',
+  provider_order_id TEXT,
+  provider_payment_id TEXT,
+  external_reference TEXT NOT NULL,
+  amount NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
+  status TEXT NOT NULL DEFAULT 'AGUARDANDO_PAGAMENTO' CHECK (status IN ('PAGAMENTO_GERADO','AGUARDANDO_PAGAMENTO','PAGO','CANCELADO','EXPIRADO','ESTORNADO')),
+  provider_status TEXT,
+  provider_status_detail TEXT,
+  qr_code TEXT,
+  qr_code_base64 TEXT,
+  ticket_url TEXT,
+  idempotency_key TEXT NOT NULL,
+  expires_at TIMESTAMPTZ,
+  paid_at TIMESTAMPTZ,
+  raw_response JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_provider_order ON payment_transactions(provider,provider_order_id) WHERE provider_order_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_payment_idempotency ON payment_transactions(provider,idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_payment_customer ON payment_transactions(customer_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_finance ON payment_transactions(financial_entry_id);
+CREATE INDEX IF NOT EXISTS idx_payment_external_reference ON payment_transactions(external_reference);
+CREATE TABLE IF NOT EXISTS payment_webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL,
+  event_key TEXT NOT NULL,
+  payload JSONB,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  processed_at TIMESTAMPTZ,
+  UNIQUE(provider,event_key)
+);
+
 -- ==================== V6 MULTIUNIDADE / FRANQUIAS ====================
 -- Fundação estrutural para operar uma empresa, várias unidades e, futuramente,
 -- grupos/franqueados sem quebrar os registros já existentes.
