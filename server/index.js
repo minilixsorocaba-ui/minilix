@@ -104,6 +104,24 @@ app.get('/api/client/rentals',clientAuth,async(req,res)=>{
  WHERE r.customer_id=$1 GROUP BY r.id,a.street,a.number,a.neighborhood,a.city,a.state ORDER BY r.scheduled_date DESC,r.created_at DESC`,[req.client.sub]);res.json(r.rows);
 });
 app.get('/api/client/finance',clientAuth,async(req,res)=>{const r=await pool.query("SELECT id,rental_id,type,description,amount,due_date,paid_at,status,created_at FROM financial_entries WHERE customer_id=$1 ORDER BY due_date NULLS LAST,created_at DESC",[req.client.sub]);res.json(r.rows)});
+// ==================== V6 UNIDADES ====================
+app.get('/api/units',auth,role('ADMIN','ATENDIMENTO'),async(_req,res)=>{
+ const r=await pool.query(`SELECT u.id,u.name,u.code,u.city,u.state,u.type,u.active,u.created_at,c.name company_name
+ FROM units u JOIN companies c ON c.id=u.company_id ORDER BY u.name`);
+ res.json(r.rows);
+});
+app.post('/api/units',auth,role('ADMIN'),async(req,res)=>{
+ const name=String(req.body?.name||'').trim(),code=String(req.body?.code||'').trim().toUpperCase(),city=String(req.body?.city||'').trim(),state=String(req.body?.state||'SP').trim().toUpperCase(),type=String(req.body?.type||'PROPRIA');
+ if(!name||!code)return res.status(400).json({error:'Nome e código da unidade são obrigatórios.'});
+ if(!['PROPRIA','FRANQUIA'].includes(type))return res.status(400).json({error:'Tipo de unidade inválido.'});
+ const company=await pool.query('SELECT id FROM companies ORDER BY created_at LIMIT 1');
+ if(!company.rows[0])return res.status(500).json({error:'Empresa MiniLix não configurada.'});
+ try{
+  const r=await pool.query('INSERT INTO units(company_id,name,code,city,state,type) VALUES($1,$2,$3,$4,$5,$6) RETURNING *',[company.rows[0].id,name,code,city||null,state,type]);
+  res.status(201).json(r.rows[0]);
+ }catch(e){if(e.code==='23505')return res.status(409).json({error:'Já existe uma unidade com esse código.'});throw e}
+});
+
 app.get('/api/client-requests',auth,role('ADMIN','ATENDIMENTO'),async(_req,res)=>{const r=await pool.query(`SELECT cr.id,cr.rental_id,cr.type,cr.details,cr.status,cr.created_at,c.name customer_name,c.email customer_email FROM client_requests cr JOIN customers c ON c.id=cr.customer_id WHERE cr.status IN ('ABERTA','EM_ATENDIMENTO') ORDER BY cr.created_at ASC`);res.json(r.rows)});
 app.patch('/api/client-requests/:id/status',auth,role('ADMIN','ATENDIMENTO'),async(req,res)=>{const status=String(req.body?.status||'');if(!['ABERTA','EM_ATENDIMENTO','CONCLUIDA','CANCELADA'].includes(status))return res.status(400).json({error:'Status de solicitação inválido.'});const r=await pool.query('UPDATE client_requests SET status=$1 WHERE id=$2 RETURNING *',[status,req.params.id]);if(!r.rows[0])return res.status(404).json({error:'Solicitação não encontrada.'});res.json(r.rows[0])});
 
