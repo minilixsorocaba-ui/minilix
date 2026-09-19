@@ -138,3 +138,102 @@ DO $$ DECLARE r RECORD; n TEXT; existing_id UUID; BEGIN
     END IF;
   END LOOP;
 END $$;
+
+
+-- ==================== V6 MULTIUNIDADE / FRANQUIAS ====================
+-- Fundação estrutural para operar uma empresa, várias unidades e, futuramente,
+-- grupos/franqueados sem quebrar os registros já existentes.
+CREATE TABLE IF NOT EXISTS companies (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  legal_name TEXT,
+  document TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS units (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  code TEXT NOT NULL,
+  city TEXT,
+  state TEXT DEFAULT 'SP',
+  type TEXT NOT NULL DEFAULT 'PROPRIA' CHECK (type IN ('PROPRIA','FRANQUIA')),
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(company_id, code)
+);
+
+INSERT INTO companies(name)
+SELECT 'MiniLix'
+WHERE NOT EXISTS (SELECT 1 FROM companies);
+
+INSERT INTO units(company_id,name,code,city,state,type)
+SELECT c.id,'MiniLix Sorocaba','SOROCABA','Sorocaba','SP','PROPRIA'
+FROM companies c
+WHERE NOT EXISTS (SELECT 1 FROM units WHERE code='SOROCABA');
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE addresses ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE containers ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE container_assets ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE rentals ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE financial_entries ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+ALTER TABLE client_requests ADD COLUMN IF NOT EXISTS unit_id UUID REFERENCES units(id);
+
+UPDATE users SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE customers SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE addresses SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE containers SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE container_assets SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE rentals SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE service_orders SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE financial_entries SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+UPDATE client_requests SET unit_id=(SELECT id FROM units WHERE code='SOROCABA' LIMIT 1) WHERE unit_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_units_company ON units(company_id);
+CREATE INDEX IF NOT EXISTS idx_users_unit ON users(unit_id);
+CREATE INDEX IF NOT EXISTS idx_customers_unit ON customers(unit_id);
+CREATE INDEX IF NOT EXISTS idx_addresses_unit ON addresses(unit_id);
+CREATE INDEX IF NOT EXISTS idx_assets_unit ON container_assets(unit_id);
+CREATE INDEX IF NOT EXISTS idx_rentals_unit ON rentals(unit_id);
+CREATE INDEX IF NOT EXISTS idx_orders_unit ON service_orders(unit_id);
+CREATE INDEX IF NOT EXISTS idx_finance_unit ON financial_entries(unit_id);
+CREATE INDEX IF NOT EXISTS idx_requests_unit ON client_requests(unit_id);
+
+CREATE OR REPLACE FUNCTION minilix_default_unit_id() RETURNS UUID AS $$
+DECLARE u UUID;
+BEGIN
+  SELECT id INTO u FROM units WHERE code='SOROCABA' AND active=true ORDER BY created_at LIMIT 1;
+  RETURN u;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+CREATE OR REPLACE FUNCTION minilix_fill_unit_id() RETURNS trigger AS $$
+BEGIN
+  IF NEW.unit_id IS NULL THEN NEW.unit_id := minilix_default_unit_id(); END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_users_default_unit ON users;
+CREATE TRIGGER trg_users_default_unit BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_customers_default_unit ON customers;
+CREATE TRIGGER trg_customers_default_unit BEFORE INSERT ON customers FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_addresses_default_unit ON addresses;
+CREATE TRIGGER trg_addresses_default_unit BEFORE INSERT ON addresses FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_containers_default_unit ON containers;
+CREATE TRIGGER trg_containers_default_unit BEFORE INSERT ON containers FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_assets_default_unit ON container_assets;
+CREATE TRIGGER trg_assets_default_unit BEFORE INSERT ON container_assets FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_rentals_default_unit ON rentals;
+CREATE TRIGGER trg_rentals_default_unit BEFORE INSERT ON rentals FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_orders_default_unit ON service_orders;
+CREATE TRIGGER trg_orders_default_unit BEFORE INSERT ON service_orders FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_finance_default_unit ON financial_entries;
+CREATE TRIGGER trg_finance_default_unit BEFORE INSERT ON financial_entries FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
+DROP TRIGGER IF EXISTS trg_requests_default_unit ON client_requests;
+CREATE TRIGGER trg_requests_default_unit BEFORE INSERT ON client_requests FOR EACH ROW EXECUTE FUNCTION minilix_fill_unit_id();
