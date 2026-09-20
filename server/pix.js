@@ -115,7 +115,7 @@ export function registerPixRoutes({app,pool,clientAuth}){
     if(existing.rows[0]) return res.status(200).json(existing.rows[0]);
 
     const idempotencyKey=crypto.randomUUID();
-    const externalReference='minilix-finance:'+financialEntryId;
+    const externalReference='minilix-finance-'+financialEntryId;
     const order=await mpRequest('/v1/orders',{
       method:'POST',
       headers:{'X-Idempotency-Key':idempotencyKey},
