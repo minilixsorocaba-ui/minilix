@@ -6,7 +6,7 @@ Extensão do repositório oficial `minilixsorocaba-ui/minilix`, baseada no commi
 
 - `/parceiros`: acesso de síndicos e administradoras, com login próprio e autorização por condomínio.
 - `/parceiros/admin`: acesso exclusivo ao perfil ADMIN da MiniLiX. Usa a sessão já existente do sistema.
-- `/cliente`: contratação pelo morador com os campos código do condomínio e unidade. Aceita pré-preenchimento com `?condominio=MLX-C-...`.
+- `/cliente`: contratação pelo morador com os campos código do condomínio e unidade. Aceita pré-preenchimento com `?condominio=MLX-001`.
 - Nova Locação do sistema operacional também recebe código e unidade.
 
 ## Implantação
@@ -49,3 +49,9 @@ Não houve teste visual em navegador nem teste no banco/servidor de produção. 
 ## Complementos desta versão
 
 Relatório mensal por competência, com saldo inicial, créditos, ajustes, repasses registrados e saldo final; impressão ou salvamento em PDF pelo navegador. Consulta consistente em transação de leitura. Atualização auditada de conta bancária; redefinição de senha do parceiro com invalidação das sessões; visão consolidada dos condomínios. Repasse, auditoria e despesa correspondente não podem ser alterados/excluídos. A competência dos repasses considera a data de registro contábil, exibindo separadamente a data da transferência. Logo otimizada em WebP.
+
+## Códigos curtos e reconhecíveis
+
+Novas parcerias usam iniciais escolhidas pela MiniLiX mais um número exclusivo: JV-001 para Jardim Vitória, SF-002 para Solar das Flores. O cadastro sugere iniciais a partir do nome e permite ajustá-las antes da contratação (2 a 6 letras sem acentos). A sequência global evita repetir números, mesmo quando dois condomínios compartilham iniciais; pode haver lacunas por transações não concluídas.
+
+Parcerias anteriores recebem um código com iniciais adicional, preservando o código antigo e a identificação MLX-001. O morador pode informar JV-001, JV001 ou apenas o número 001. Os códigos são imutáveis e não substituem a senha do portal. A sequência cresce depois de 999 sem truncar. O relatório mensal e as listas apresentam o código com iniciais.

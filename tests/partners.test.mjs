@@ -26,4 +26,7 @@ await assert.rejects(db.query('DELETE FROM partner_ledger WHERE rental_id=$1',[r
 await assert.rejects(db.query("UPDATE partner_contracts SET code='CHANGED' WHERE id=$1",[contract]),/imutáveis/);
 await assert.rejects(db.query("UPDATE rentals SET partner_unit='202' WHERE id=$1",[rental]),/imutável/);
 await db.exec(await readFile('server/partners.sql','utf8'));assert.equal(await balance(),'3.30');
+assert.equal(await scalar('SELECT short_code FROM partner_contracts WHERE id=$1',[contract]),'MLX-001');
+await assert.rejects(db.query("UPDATE partner_contracts SET short_code='MLX-999' WHERE id=$1",[contract]),/imutáveis/);
+await db.exec("SELECT setval('partner_short_code_seq',999)");assert.equal(await scalar('SELECT partner_next_code()'),'MLX-1000');
 console.log('PASS: pagamento e conclusão, base sem extras, idempotência, estorno, recomposição, imutabilidade e migração repetida.');await db.close();

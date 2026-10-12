@@ -2,7 +2,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {readFile} from 'node:fs/promises';
 import express from 'express';import cookieParser from 'cookie-parser';import bcrypt from 'bcryptjs';
 import assert from 'node:assert/strict';
-import {registerPartnerRoutes,linkPartner} from '../server/partners.js';
+import {registerPartnerRoutes,linkPartner,normalizePartnerCode,partnerNamePrefix} from '../server/partners.js';
 process.env.JWT_SECRET='test-only-secret-not-used-in-production';
 const db=new PGlite();await db.exec("CREATE FUNCTION gen_random_bytes(n integer) RETURNS bytea LANGUAGE sql AS $$ SELECT decode(substr(md5(random()::text),1,n*2),'hex') $$");
 await db.exec((await readFile('server/schema.sql','utf8')).replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;',''));
@@ -16,11 +16,11 @@ const role=()=>((req,res,next)=>next());registerPartnerRoutes({app,pool,auth,rol
 app.use((e,req,res,next)=>res.status(500).json({error:e.message}));
 const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const root='http://127.0.0.1:'+server.address().port;
 async function request(path,method='GET',body,cookie='',isAdmin=false,origin=''){const r=await fetch(root+path,{method,headers:{'Content-Type':'application/json',...(cookie?{cookie}:{}),...(isAdmin?{'x-test-admin':'yes'}:{}),...(origin?{origin}:{})},body:body?JSON.stringify(body):undefined});return{status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]}}
-const data={name:'Condomínio teste',document:'00000000000000',address:'Rua teste 1',representative:'Teste',bankDetails:'Conta condomínio',startsOn:new Date().toISOString().slice(0,10),accepted:true};
+const data={name:'Condomínio teste',document:'00000000000000',address:'Rua teste 1',representative:'Teste',bankDetails:'Conta condomínio',startsOn:new Date().toISOString().slice(0,10),accepted:true,codePrefix:'JV'};
 try{
 assert.equal((await request('/api/partner-admin/contracts')).status,401);
 assert.equal((await request('/api/partner-admin/contracts','POST',data,'',true,'https://attacker.test')).status,403);
-const a=await request('/api/partner-admin/contracts','POST',data,'',true);assert.equal(a.status,201);assert.match(a.data.code,/^MLX-C-[A-F0-9]{10}$/);
+const a=await request('/api/partner-admin/contracts','POST',data,'',true);assert.equal(a.status,201);assert.match(a.data.code,/^JV-[0-9]{3,}$/);assert.equal(a.data.code,'JV-001');assert.equal(a.data.short_code,'MLX-001');assert.equal(partnerNamePrefix('Condomínio Jardim Vitória'),'JV');assert.equal(partnerNamePrefix('Solar das Flores'),'SF');assert.equal(partnerNamePrefix('Residencial Primavera'),'PRI');
 const b=await request('/api/partner-admin/contracts','POST',{...data,name:'Outro',document:'11111111111111'},'',true);assert.equal(b.status,201);assert.notEqual(a.data.code,b.data.code);
 const member={name:'Síndico',email:'sindico@test.test',password:'testpassword123',role:'SINDICO'};
 assert.equal((await request('/api/partner-admin/contracts/'+a.data.id+'/members','POST',member,'',true)).status,201);
@@ -36,7 +36,8 @@ const customer=await scalar("INSERT INTO customers(name) VALUES('Teste') RETURNI
 const addr=await scalar("INSERT INTO addresses(customer_id,street,number) VALUES($1,'Rua','1') RETURNING id",[customer]);
 const rental=await scalar("INSERT INTO rentals(customer_id,address_id,scheduled_date) VALUES($1,$2,CURRENT_DATE) RETURNING id",[customer,addr]);
 await db.query("INSERT INTO financial_entries(rental_id,type,description,amount) VALUES($1,'RECEITA','Locação TEST',130)",[rental]);
-await linkPartner(pool,rental,{partnerCode:a.data.code,partnerUnit:'101'},110);
+assert.equal(normalizePartnerCode(' 001 '),'MLX-001');assert.equal(normalizePartnerCode('mlx001'),'MLX-001');assert.equal(normalizePartnerCode('MLX-C-ABC'),'MLX-C-ABC');
+await linkPartner(pool,rental,{partnerCode:a.data.short_code.replace('MLX-',''),partnerUnit:'101'},110);
 assert.equal(await scalar('SELECT partner_eligible_amount::text FROM financial_entries WHERE rental_id=$1',[rental]),'110.00');
 await assert.rejects(linkPartner(pool,rental,{partnerCode:'WRONG',partnerUnit:'101'},110),/inválido/);
 await db.query("UPDATE financial_entries SET status='PAGO' WHERE rental_id=$1",[rental]);

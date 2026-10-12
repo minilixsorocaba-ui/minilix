@@ -1,4 +1,27 @@
 CREATE TABLE IF NOT EXISTS partner_contracts (id UUID PRIMARY KEY DEFAULT gen_random_uuid(),code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,document TEXT NOT NULL,address TEXT NOT NULL,representative TEXT NOT NULL,bank_details TEXT NOT NULL,starts_on DATE NOT NULL,ends_on DATE NOT NULL,rate NUMERIC(5,2) NOT NULL DEFAULT 3 CHECK(rate=3),status TEXT NOT NULL DEFAULT 'ATIVO' CHECK(status IN('ATIVO','ENCERRADO')),terms_version TEXT NOT NULL DEFAULT 'PILOTO-3PCT-90D-V1',accepted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),created_by UUID NOT NULL REFERENCES users(id),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),CHECK(ends_on=starts_on+89));
+-- Código curto é um identificador público, nunca uma credencial de acesso.
+CREATE SEQUENCE IF NOT EXISTS partner_short_code_seq;
+CREATE OR REPLACE FUNCTION partner_next_code() RETURNS TEXT LANGUAGE sql AS $$
+ SELECT 'MLX-'||lpad(n,greatest(3,length(n)),'0') FROM (SELECT nextval('partner_short_code_seq')::text n) seq;
+$$;
+ALTER TABLE partner_contracts ADD COLUMN IF NOT EXISTS short_code TEXT NOT NULL DEFAULT partner_next_code();
+CREATE UNIQUE INDEX IF NOT EXISTS ux_partner_short_code ON partner_contracts(short_code);
+CREATE OR REPLACE FUNCTION partner_name_prefix(value TEXT) RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+ WITH words AS (
+ SELECT word,ord FROM regexp_split_to_table(regexp_replace(translate(upper(value),'ÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ','AAAAAEEEEIIIIOOOOOUUUUC'),'[^A-Z]+',' ','g'),' ') WITH ORDINALITY t(word,ord)
+ WHERE word<>'' AND word NOT IN('CONDOMINIO','RESIDENCIAL','EDIFICIO','CONJUNTO','DO','DA','DE','DAS','DOS','E')
+ ), first_words AS (SELECT * FROM words ORDER BY ord LIMIT 4)
+ SELECT CASE WHEN count(*)=0 THEN 'COND' WHEN count(*)=1 THEN left(max(word),3)||CASE WHEN length(max(word))=1 THEN 'X' ELSE '' END ELSE string_agg(left(word,1),'' ORDER BY ord) END FROM first_words;
+$$;
+ALTER TABLE partner_contracts ADD COLUMN IF NOT EXISTS friendly_code TEXT;
+UPDATE partner_contracts SET friendly_code=partner_name_prefix(name)||'-'||substring(short_code from 5) WHERE friendly_code IS NULL;
+ALTER TABLE partner_contracts ALTER COLUMN friendly_code SET NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_partner_friendly_code ON partner_contracts(friendly_code);
+CREATE OR REPLACE FUNCTION partner_set_friendly_code() RETURNS trigger AS $$ BEGIN
+ IF NEW.friendly_code IS NULL THEN NEW.friendly_code:=partner_name_prefix(NEW.name)||'-'||substring(NEW.short_code from 5); END IF;
+ RETURN NEW; END; $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS partner_friendly_code_default ON partner_contracts;
+CREATE TRIGGER partner_friendly_code_default BEFORE INSERT ON partner_contracts FOR EACH ROW EXECUTE FUNCTION partner_set_friendly_code();
 CREATE UNIQUE INDEX IF NOT EXISTS ux_partner_active_document ON partner_contracts(document) WHERE status='ATIVO';
 CREATE TABLE IF NOT EXISTS partner_users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(),name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,active BOOLEAN NOT NULL DEFAULT true,session_version INT NOT NULL DEFAULT 1,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
 CREATE TABLE IF NOT EXISTS partner_memberships (user_id UUID REFERENCES partner_users(id),contract_id UUID REFERENCES partner_contracts(id),role TEXT NOT NULL CHECK(role IN('SINDICO','ADMINISTRADORA')),active BOOLEAN NOT NULL DEFAULT true,PRIMARY KEY(user_id,contract_id));
@@ -11,7 +34,7 @@ CREATE TABLE IF NOT EXISTS partner_audit (id BIGSERIAL PRIMARY KEY,contract_id U
 CREATE INDEX IF NOT EXISTS idx_partner_rentals ON rentals(partner_contract_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_partner_ledger ON partner_ledger(contract_id,created_at);
 CREATE OR REPLACE FUNCTION partner_protect_contract() RETURNS trigger AS $$ BEGIN
-IF (NEW.code,NEW.starts_on,NEW.ends_on,NEW.rate,NEW.terms_version,NEW.document) IS DISTINCT FROM (OLD.code,OLD.starts_on,OLD.ends_on,OLD.rate,OLD.terms_version,OLD.document) THEN RAISE EXCEPTION 'Condições e código são imutáveis'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
+IF (NEW.code,NEW.short_code,NEW.friendly_code,NEW.starts_on,NEW.ends_on,NEW.rate,NEW.terms_version,NEW.document) IS DISTINCT FROM (OLD.code,OLD.short_code,OLD.friendly_code,OLD.starts_on,OLD.ends_on,OLD.rate,OLD.terms_version,OLD.document) THEN RAISE EXCEPTION 'Condições e código são imutáveis'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS partner_contract_immutable ON partner_contracts;
 CREATE TRIGGER partner_contract_immutable BEFORE UPDATE ON partner_contracts FOR EACH ROW EXECUTE FUNCTION partner_protect_contract();
 CREATE OR REPLACE FUNCTION partner_protect_rental() RETURNS trigger AS $$ BEGIN
