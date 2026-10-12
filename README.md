@@ -78,3 +78,9 @@ npm start
 ```
 
 O serviço usa a variável `PORT` fornecida pelo Railway.
+
+## Preparação de notas fiscais
+
+A rota `/fiscal` está disponível para ADMIN e ATENDIMENTO e mantém rascunhos internos por cliente, com locação/OS e receita opcionais. Salvar não cria nem altera lançamentos financeiros ou cashback. Rascunhos podem ser editados com controle de versão e arquivados mantendo auditoria. Não possuem número, autorização ou validade de NFS-e.
+
+A emissão permanece bloqueada no backend (`POST /api/fiscal/emit` retorna 409), independentemente de parâmetros enviados. A MiniLiX aguarda CNPJ, definição tributária, habilitação e integração validada; não foram configurados códigos de serviço, tributos, certificados ou credenciais de prefeitura. O backend aplica `server/fiscal.sql` de forma aditiva no início. Verificação: `npm run test:fiscal`.

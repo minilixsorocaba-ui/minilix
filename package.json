@@ -13,7 +13,8 @@
     "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
     "start": "npm run start -w server",
-    "test:partners": "node tests/partners.test.mjs && node tests/partners-access.test.mjs && node tests/partners-migration.test.mjs"
+    "test:partners": "node tests/partners.test.mjs && node tests/partners-access.test.mjs && node tests/partners-migration.test.mjs",
+    "test:fiscal": "node tests/fiscal.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

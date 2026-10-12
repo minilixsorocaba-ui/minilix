@@ -1,0 +1,32 @@
+import {PGlite} from '@electric-sql/pglite';import {readFile} from 'node:fs/promises';import assert from 'node:assert/strict';import express from 'express';import {registerFiscalRoutes} from '../server/fiscal.js';
+const db=new PGlite();await db.exec("CREATE FUNCTION gen_random_bytes(n integer) RETURNS bytea LANGUAGE sql AS $$ SELECT decode(substr(md5(random()::text),1,n*2),'hex') $$");await db.exec((await readFile('server/schema.sql','utf8')).replace('CREATE EXTENSION IF NOT EXISTS pgcrypto;',''));await db.exec(await readFile('server/partners.sql','utf8'));await db.exec(await readFile('server/fiscal.sql','utf8'));
+const scalar=async(s,p=[])=>Object.values((await db.query(s,p)).rows[0])[0];
+const user=await scalar("INSERT INTO users(name,email,password_hash,role) VALUES('Teste','fiscal@test.test','hash','ADMIN') RETURNING id");
+const c1=await scalar("INSERT INTO customers(name) VALUES('Cliente A') RETURNING id"),c2=await scalar("INSERT INTO customers(name) VALUES('Cliente B') RETURNING id");
+const address=await scalar("INSERT INTO addresses(customer_id,street,number) VALUES($1,'Rua','1') RETURNING id",[c1]);const rental=await scalar('INSERT INTO rentals(customer_id,address_id,scheduled_date) VALUES($1,$2,CURRENT_DATE) RETURNING id',[c1,address]);
+const entry=await scalar("INSERT INTO financial_entries(customer_id,rental_id,type,description,amount) VALUES($1,$2,'RECEITA','Receita teste',110) RETURNING id",[c1,rental]);
+const pool={query:(s,p)=>db.query(s,p),connect:async()=>({query:(s,p)=>db.query(s,p),release(){}})};
+const app=express();app.use(express.json());const auth=(req,res,next)=>{if(!req.get('x-test-role'))return res.status(401).json({error:'Unauthorized'});req.user={sub:user,role:req.get('x-test-role')};next()},role=(...allowed)=>(req,res,next)=>allowed.includes(req.user.role)?next():res.status(403).json({error:'Forbidden'});registerFiscalRoutes({app,pool,auth,role});app.use((e,req,res,next)=>res.status(500).json({error:e.message}));
+const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const root='http://127.0.0.1:'+server.address().port;
+const request=async(path,method='GET',body,role='ADMIN',origin)=>{const r=await fetch(root+'/api/fiscal'+path,{method,headers:{'Content-Type':'application/json',...(role?{'x-test-role':role}:{}),...(origin?{origin}:{})},body:body?JSON.stringify(body):undefined});return{status:r.status,data:await r.json()}};
+try{
+assert.equal((await request('/config','GET',null,'')).status,401);assert.equal((await request('/drafts','GET',null,'MOTORISTA')).status,403);assert.equal((await request('/config')).data.emissionEnabled,false);assert.equal((await request('/emit','POST',{emissionEnabled:true,cnpj:'123'})).status,409);
+const draft={customerId:c1,rentalId:rental,financialEntryId:entry,competence:'2026-10-12',description:'Descrição prevista, a validar pelo contador',plannedAmount:'110.00'};
+assert.equal((await request('/drafts','POST',draft,'ADMIN','https://attacker.test')).status,403);
+assert.equal((await request('/drafts','POST',{...draft,customerId:c2})).status,400);
+assert.equal((await request('/drafts','POST',{...draft,rentalId:''})).status,400);
+assert.equal((await request('/drafts','POST',{...draft,plannedAmount:'NaN'})).status,400);
+assert.equal((await request('/drafts','POST',{...draft,competence:'2026-02-31'})).status,400);
+const created=await request('/drafts','POST',draft);assert.equal(created.status,201);const id=created.data.id;assert.equal(created.data.status,'RASCUNHO');assert.equal((await request('/drafts','POST',draft)).status,409);
+assert.equal((await request('/drafts/'+id,'PATCH',{...draft,version:0})).status,409);
+assert.equal((await request('/drafts/'+id,'PATCH',{...draft,plannedAmount:'120.50',version:1},'ATENDIMENTO')).status,200);
+assert.equal(await scalar('SELECT amount::text FROM financial_entries WHERE id=$1',[entry]),'110.00');assert.equal(await scalar('SELECT COUNT(*)::int FROM partner_ledger'),0);
+assert.equal((await request('/drafts/'+id,'PATCH',{action:'ARQUIVAR',version:2})).status,200);
+assert.equal((await request('/drafts/'+id,'PATCH',{...draft,version:3})).status,409);
+assert.equal((await request('/drafts/'+id+'/history')).data.length,3);
+assert.equal((await request('/drafts','POST',draft)).status,201);
+await assert.rejects(db.exec('DELETE FROM fiscal_draft_audit'),/não pode/);
+await db.exec(await readFile('server/fiscal.sql','utf8'));assert.equal(await scalar('SELECT COUNT(*)::int FROM fiscal_drafts'),2);
+assert.equal((await request('/emit','POST',{})).status,409);
+console.log('PASS: autenticação/perfis, bloqueio de emissão, vínculos de cliente/locação/receita, validação, edição concorrente, duplicação, arquivo, auditoria e ausência de alteração financeira/cashback.');
+}finally{server.close();await db.close()}

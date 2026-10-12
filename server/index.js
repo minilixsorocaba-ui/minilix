@@ -9,6 +9,7 @@ import pg from 'pg';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {registerFiscalRoutes} from './fiscal.js';
 import { registerPixRoutes } from './pix.js';
 import {registerPartnerRoutes,linkPartner} from './partners.js';
 
@@ -25,11 +26,13 @@ app.set('trust proxy',1); app.use(helmet({contentSecurityPolicy:false})); app.us
 app.use('/api/auth/login',rateLimit({windowMs:15*60*1000,limit:20,standardHeaders:'draft-8',legacyHeaders:false}));
 await pool.query(await fs.readFile(path.join(__dirname,'schema.sql'),'utf8'));
 await pool.query(await fs.readFile(path.join(__dirname,'partners.sql'),'utf8'));
+await pool.query(await fs.readFile(path.join(__dirname,'fiscal.sql'),'utf8'));
 const cookieOptions={httpOnly:true,secure:production,sameSite:'lax',maxAge:8*60*60*1000,path:'/'};
 const tokenFor=u=>jwt.sign({sub:u.id,role:u.role,name:u.name,email:u.email},process.env.JWT_SECRET,{expiresIn:'8h'});
 async function auth(req,res,next){try{const t=jwt.verify(req.cookies.ml_session||'',process.env.JWT_SECRET);if(!['ADMIN','ATENDIMENTO','MOTORISTA'].includes(t.role)||t.kind)throw Error();const u=(await pool.query('SELECT id,name,email,role FROM users WHERE id=$1 AND active=true',[t.sub])).rows[0];if(!u)throw Error();req.user={...u,sub:u.id};next()}catch{res.status(401).json({error:'Sessão inválida ou expirada.'})}}
 function role(...roles){return(req,res,next)=>roles.includes(req.user.role)?next():res.status(403).json({error:'Acesso não permitido.'})}
 registerPartnerRoutes({app,pool,auth,role});
+registerFiscalRoutes({app,pool,auth,role});
 const year=()=>new Date().getFullYear();
 const osNumber=async(client)=>{const r=await client.query("SELECT nextval('os_number_seq') AS n");return `OS-${year()}-${String(r.rows[0].n).padStart(6,'0')}`};
 
