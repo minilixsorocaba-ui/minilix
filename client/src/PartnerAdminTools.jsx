@@ -1,0 +1,10 @@
+import {useEffect,useState} from 'react';
+export function BankDetails({contract,run,onSave,api}){
+ const[bank,setBank]=useState(contract.bank_details||''),[confirmed,setConfirmed]=useState(false);
+ useEffect(()=>{setBank(contract.bank_details||'');setConfirmed(false)},[contract.id,contract.bank_details]);
+ return <form className="pp-payout" onSubmit={e=>{e.preventDefault();run(async()=>{await api('/api/partner-admin/contracts/'+contract.id,{method:'PATCH',body:JSON.stringify({status:contract.status,bankDetails:bank})});setConfirmed(false);await onSave()})}}><h3>Dados bancários do condomínio</h3><label>Conta ou chave Pix<textarea required maxLength="1000" value={bank} onChange={e=>setBank(e.target.value)}/></label><label className="pp-check"><input type="checkbox" required checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/>Confirmei a titularidade do condomínio e recebi autorização para esta atualização.</label><button>Salvar dados bancários</button></form>
+}
+export function ResetAccess({contractId,members,run,api,onSave}){
+ const[userId,setUserId]=useState(''),[password,setPassword]=useState('');useEffect(()=>{setUserId('');setPassword('')},[contractId]);
+ return <form className="pp-payout" onSubmit={e=>{e.preventDefault();run(async()=>{await api(`/api/partner-admin/contracts/${contractId}/members/${userId}/password`,{method:'POST',body:JSON.stringify({password})});setPassword('');await onSave()})}}><h3>Recuperar acesso do parceiro</h3><p className="pp-small">A redefinição encerra as sessões anteriores desse usuário, inclusive em outros condomínios. Entregue a nova senha por canal reservado.</p><div className="pp-fields"><label>Usuário<select required value={userId} onChange={e=>setUserId(e.target.value)}><option value="">Selecione</option>{members.filter(x=>x.active).map(x=><option key={x.id} value={x.id}>{x.name} • {x.email}</option>)}</select></label><label>Nova senha inicial<input required type="password" minLength="10" maxLength="200" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label></div><button>Redefinir senha e encerrar sessões</button></form>
+}

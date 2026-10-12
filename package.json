@@ -2,14 +2,21 @@
   "name": "minilix",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=20" },
-  "workspaces": ["server", "client"],
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "server",
+    "client"
+  ],
   "scripts": {
     "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
     "build": "npm run build -w client",
-    "start": "npm run start -w server"
+    "start": "npm run start -w server",
+    "test:partners": "node tests/partners.test.mjs && node tests/partners-access.test.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "concurrently": "^9.1.2",
+    "@electric-sql/pglite": "0.5.9"
   }
 }
