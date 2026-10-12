@@ -10,4 +10,4 @@ button:hover,.btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(31
 .v5-dashboard,.v5-reports,.v5-clients,.v5-assets{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
 /* Branded floating controls used by V5 modules */
 button[title*="Central"],button[title*="Relat"]{background:var(--ml-green)!important;color:#fff!important;border-color:var(--ml-green-dark)!important;}
-"
+
