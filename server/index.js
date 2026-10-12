@@ -1,3 +1,4 @@
+import {registerDocumentRoutes} from './documents.js';
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -33,6 +34,7 @@ async function auth(req,res,next){try{const t=jwt.verify(req.cookies.ml_session|
 function role(...roles){return(req,res,next)=>roles.includes(req.user.role)?next():res.status(403).json({error:'Acesso não permitido.'})}
 registerPartnerRoutes({app,pool,auth,role});
 registerFiscalRoutes({app,pool,auth,role});
+registerDocumentRoutes({app,pool,auth,role});
 const year=()=>new Date().getFullYear();
 const osNumber=async(client)=>{const r=await client.query("SELECT nextval('os_number_seq') AS n");return `OS-${year()}-${String(r.rows[0].n).padStart(6,'0')}`};
 
