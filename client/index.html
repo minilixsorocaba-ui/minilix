@@ -6,6 +6,15 @@
 <meta name="theme-color" content="#006b2d"/>
 <meta name="description" content="MiniLix - Coleta de Entulhos no Tambor"/>
 <link rel="manifest" href="/manifest.webmanifest"/>
+<script>
+if(location.pathname.startsWith('/parceiros')&&!location.pathname.startsWith('/parceiros/admin')){
+ document.querySelector('link[rel="manifest"]').href='/portal-condominio.webmanifest';
+ document.title='MiniLiX — Portal do Condomínio';
+ const icon=document.createElement('link');icon.rel='apple-touch-icon';icon.href='/portal-condominio-180.png';document.head.appendChild(icon);
+ const meta=document.createElement('meta');meta.name='apple-mobile-web-app-title';meta.content='MiniLiX Condomínio';document.head.appendChild(meta);
+ const capable=document.createElement('meta');capable.name='apple-mobile-web-app-capable';capable.content='yes';document.head.appendChild(capable);
+}
+</script>
 <link rel="icon" href="/minilix-icon.svg" type="image/svg+xml"/>
 <title>MiniLix | Coleta de Entulhos no Tambor</title>
 <style id="minilix-critical">

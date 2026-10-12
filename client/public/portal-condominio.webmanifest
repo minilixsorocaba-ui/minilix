@@ -1,0 +1,26 @@
+{
+  "id": "/parceiros",
+  "name": "MiniLiX — Portal do Condomínio",
+  "short_name": "MiniLiX Condo",
+  "start_url": "/parceiros",
+  "scope": "/parceiros",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#006b2d",
+  "lang": "pt-BR",
+  "description": "Locações, pagamentos e cashback do Programa Condomínio Parceiro.",
+  "icons": [
+    {
+      "src": "/portal-condominio-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/portal-condominio-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
